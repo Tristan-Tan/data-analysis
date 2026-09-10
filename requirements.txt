@@ -1,0 +1,10 @@
+# Python 3.10.16
+# 注意：numpy 勿升 2.x（torch/lightgbm 会崩）；pyarrow 勿升 17.x（GLIBCXX_3.4.21 报错）
+numpy==1.26.4
+pandas==2.2.3
+polars==1.17.1
+pyarrow==12.0.1
+scikit-learn==1.5.2
+lightgbm==4.5.0
+catboost==1.2.7
+scipy>=1.10,<2.0
