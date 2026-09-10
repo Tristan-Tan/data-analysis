@@ -1,12 +1,15 @@
 # -*- coding: utf-8 -*-
 """特征矩阵组装 —— 训练与预测**共用同一份代码**，杜绝两侧口径漂移。
 
-401 维构成：
+402 维构成：
     299  features_v4        窗口聚合 / 尾部行为 / smy 与渠道展开 / 静态表
      56  exp5 暴露编码       8 变体 × 7 统计（fold-safe）
      19  inflow_feat        入金侧 label-free（发送方扇入度等）
       5  财富归一            见下方公式，v12 的胜负手
      22  silence 族          本方案核心创新
+      1  smy_te             smy_cd 加权目标编码（fold-safe/fold-matched，
+                             同 exp5 口径；单变量 AUC 0.7714，与已有特征
+                             最高相关仅 0.4767，OOF 快速验证 +8 命中）
 """
 import gc
 import os
@@ -63,19 +66,35 @@ def build(keys, enc, feat, infeat, sil, cols=None):
     return X, cols
 
 
+def _merge_smy_te(enc, target, k=None):
+    """把 07b 生成的 smy_te（fold-safe/fold-matched）合并进 enc，
+    复用 enc 已有的 'ec = exp5 列' 通用处理逻辑（merge / fillna(0)）。
+    target: 'train' | 'testa' | 'testb'；k 仅测试侧使用（第几折）。"""
+    if target == "train":
+        smy_te = pd.read_parquet(P("smy_te_tr.parquet"))
+    else:
+        pfx = "smy_te_te" if target == "testa" else "smy_te_teb"
+        p = P(f"{pfx}_f{k}.parquet")
+        assert os.path.exists(p), f"缺少 smy_te fold-matched 编码 {p}，请先跑 07b"
+        smy_te = pd.read_parquet(p)
+    smy_te["card_no"] = smy_te["card_no"].astype(str)
+    return enc.merge(smy_te, on="card_no", how="left")
+
+
 def build_train(cols=None):
     tr = pd.read_parquet(P("train.parquet"))
     tr["card_no"] = tr["card_no"].astype(str)
     y = tr["label"].astype(float).astype(np.int8).values
     enc = pd.read_parquet(P("exp5_tr.parquet"))
     enc["card_no"] = enc["card_no"].astype(str)
+    enc = _merge_smy_te(enc, "train")
     feat, infeat, sil = load_parts()
     X, cols = build(tr[["card_no"]], enc, feat, infeat, sil, cols)
     return tr, X, y, cols
 
 
 def build_test_folds(target, n_folds, cols):
-    """返回 5 份测试矩阵，第 k 份使用 fold-matched 的 exp5 编码。
+    """返回 5 份测试矩阵，第 k 份使用 fold-matched 的 exp5 + smy_te 编码。
     target: 'testa' | 'testb'"""
     te = pd.read_parquet(P(f"{target}.parquet"))
     te["card_no"] = te["card_no"].astype(str)
@@ -87,6 +106,7 @@ def build_test_folds(target, n_folds, cols):
         assert os.path.exists(p), f"缺少 fold-matched 编码 {p}，请先跑 07"
         enc = pd.read_parquet(p)
         enc["card_no"] = enc["card_no"].astype(str)
+        enc = _merge_smy_te(enc, target, k)
         X, _ = build(te[["card_no"]], enc, feat, infeat, sil, cols)
         Xs.append(X)
     return te, Xs

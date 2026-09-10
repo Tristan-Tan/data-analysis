@@ -2,9 +2,13 @@
 """10 训练最终模型并落盘
 
 最终提交 = 三个模型族的 rank 等权平均：
-    dart          401 维 LightGBM DART                  seed [42]
-    abthin_lgbn   408 维 LightGBM 窄树（401 + AB-thin） seed [42, 2026]
-    cat           401 维 CatBoost 对称树                seed [42]
+    dart          402 维 LightGBM DART                  seed [42]
+    abthin_lgbn   409 维 LightGBM 窄树（402 + AB-thin） seed [42, 2026]
+    cat           402 维 CatBoost 对称树                seed [42]
+
+⚠ 402 维 = A 榜提交时的 401 维 + 07b 新增的 smy_cd 目标编码（1 维）。
+   若要精确复现已提交的 A 榜 0.916446（401/408 维），
+   请勿运行 07b_smy_te_encoding.py，直接跳过该步骤即可退回原始维度。
 
 为什么是这三个而不是「线下最好的那个」：见说明文档 §一.6。
 简言之，线下 OOF 分数经过数十轮选择后已带过拟合，2772~2780 的线下差异
@@ -15,8 +19,8 @@
 
 输出:
   model/{family}_s{seed}_f{fold}.txt|cbm   共 20 个模型
-  model/feature_cols.json                  401 维基础列顺序
-  model/account_balance_thin_feature_cols.json  408 维 AB-thin 列顺序
+  model/feature_cols.json                  402 维基础列顺序
+  model/account_balance_thin_feature_cols.json  409 维 AB-thin 列顺序
   data/interim/oof_{family}.npy            OOF（供线下核对）
 耗时: 约 110 分钟（dart 约 78 分钟，是主要开销）
 """
@@ -113,7 +117,7 @@ def main():
     folds = list(StratifiedKFold(N_FOLDS, shuffle=True,
                                  random_state=FOLD_SEED).split(Xbase, y))
 
-    print("\n=== abthin_lgbn（401 + 7 维账户/余额薄特征）===")
+    print("\n=== abthin_lgbn（402 + 7 维账户/余额薄特征）===")
     o, t = train_lgb_family(Xthin, y, Xte_thin, thin_cols, folds,
                             "abthin_lgbn",
                             LGBN_EXTRA, FINAL_RECIPE["lgbn"])
