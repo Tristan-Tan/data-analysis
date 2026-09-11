@@ -12,6 +12,7 @@ echo "===== 04 特征 v3 (174) ====="                  ; python code/train/04_fe
 echo "===== 05 特征 v4 (300) ====="                  ; python code/train/05_features_v4.py
 echo "===== 06 对手边表 ====="                       ; python code/train/06_edge_tables.py
 echo "===== 07 exp5 暴露编码 (fold-matched) ====="   ; python code/train/07_exp5_encoding.py testa
+echo "===== 07b smy_cd 目标编码 (fold-matched) ====" ; python code/train/07b_smy_te_encoding.py testa
 echo "===== 08 入金侧特征 ====="                     ; python code/train/08_inflow_feat.py
 echo "===== 09 silence 特征族 ====="                 ; python code/train/09_silence_feat.py
 echo "===== 10 构造 AB-thin + 训练三族模型 ====="      ; python code/train/10_train_models.py

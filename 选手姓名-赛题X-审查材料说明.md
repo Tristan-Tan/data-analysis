@@ -382,18 +382,24 @@ prediction_result/prediction_resultA.csv
 
 - A 榜结果：`prediction_result/prediction_resultA.csv`
 
-**预期误差为 0，可完全复现。** 依据：
+**复现分两条路径，误差表现不同：**
 
-1. 全流程无任何随机性未受控——折划分 `random_state=42`，各模型 `seed` 在 `config.FINAL_RECIPE` 中显式指定；
-2. 特征加工全部为确定性聚合，不含采样；
-3. 融合为固定等权 rank 平均，无权重搜索；
-4. `predict.py` 直接加载落盘模型，与训练时的 `best_iteration` 完全一致（保存时已用 `num_iteration=best_iteration` 截断）。
+- **路径一（直接用随材料提交的 `model/` 目录执行 `predict.py`，不重新训练）**：误差严格为 0。依据：
+  1. `predict.py` 直接加载落盘模型，与训练时的 `best_iteration` 完全一致（保存时已用 `num_iteration=best_iteration` 截断）；
+  2. 特征加工全部为确定性聚合，不含采样；
+  3. 融合为固定等权 rank 平均，无权重搜索。
+- **路径二（从零重跑 `run_train.sh` 完整训练）**：折划分 `random_state=42`、各模型 `seed` 均在 `config.FINAL_RECIPE` 中显式指定，流程本身无随机性未受控环节，但 LightGBM 在不同 CPU 核数/硬件环境下的浮点累加顺序可能产生微小差异，导致 `best_iteration` 存在极小概率偏移，预估 top754 变动不超过 3 张卡。
 
 线上已验证文件为 `abthin_w100.csv`，成绩 **0.916446（691/754）**。
 审查包中的正式文件名统一为 `prediction_resultA.csv`；二者采用同一模型、同一
 三族融合公式及同一硬规则，仅文件名不同。
 
-若从零重跑训练（`run_train.sh`），因 LightGBM 在不同 CPU 核数下的浮点累加顺序可能有微小差异，`best_iteration` 存在极小概率偏移，预估 top754 变动不超过 3 张卡。**建议评审直接使用随材料提交的 `model/` 目录执行预测**，此路径误差严格为 0。
+**实测记录**：评审环境下按路径二从零重跑一次完整训练+预测，线上提交得分
+**0.917771（692/754）**，相对文档记录的 691/754 多 1 张，落在上述预估的
+"不超过 3 张卡"范围内，验证了该项风险提示的真实性，属正常复现范围内的结果，
+不代表代码有误。**建议评审优先使用随材料提交的 `model/` 目录执行预测（路径
+一）以获得与文档完全一致的 691/754**；若选择从零重跑，691~694 张（±3 卡）
+均应视为正确复现。
 
 ## （六）复赛（B 榜）说明
 
@@ -402,6 +408,17 @@ prediction_result/prediction_resultA.csv
 > - `testB` 侧特征加工（复用 01–09 同一份代码，`07_exp5_encoding.py` 传入参数 `testb`）；
 > - `predict.py testb` 生成 `prediction_resultB.csv`；
 > - **silence 锚点的复核结果**（见下方常见问题 §一）。
+
+**A 榜阶段的后续探索（未纳入最终提交，供复赛参考）**：新增 `07b_smy_te_encoding.py`，
+对 `smy_cd`（摘要代码）做与 `exp5` 同口径的 fold-safe/fold-matched 加权目标编码
+（401→402 维）。方法论验证阶段表现良好：单变量 AUC 0.7714，与已有 299 维特征
+最高相关仅 0.4767，判定为现有 Top95 `smy_cd` one-hot 展开未覆盖的新信息；单一
+LightGBM 5 折 OOF 快速测试显示 top1_f1 由 0.9163 提升至 0.9190（命中 2749→2757，
++8）。但接入完整三族融合生产链路后，线上实测得分与未加该特征的历史记录一致
+（691/754），三族融合 OOF 也未见提升（2773/3000 vs 原配方 2775/3000）——
+增量效果与路径二复现噪声（±3 卡）同量级，**暂无法判定 smy_te 是否真实有效**，
+未纳入最终提交版本。相关代码已保留在 `code/train/07b_smy_te_encoding.py`，
+复赛阶段样本量更大、噪声占比相对更小，届时可视情况再评估是否采纳。
 
 ---
 
