@@ -48,12 +48,24 @@ txn.write_parquet(P("txn.parquet"))
 print(f"txn(合并后): {txn.shape}  {time.time()-t0:.0f}s")
 
 # ---------- 2. 其余表 ----------
-def conv_concat(train_path, testb_path, name, ovv=None):
+# ⚠ testB 与 train/testA 的 card_no 互不重叠（已在下方 assert 校验），但同一
+#   客户（cst_id）完全可能同时在 train/testA 有卡、在 testB 又开了新卡，导致
+#   该 cst_id 在合并后的 cst_info 里出现 2 次。02_features_v1.py 用 cst_id
+#   join，主键一旦不唯一就会把对应的 train 卡"炸"成多行，行数与 label 对不
+#   齐（IndexError: Boolean index has wrong length）。这里按主键去重兜底。
+def conv_concat(train_path, testb_path, name, ovv=None, dedup_on=None):
     parts = [pl.read_csv(train_path, schema_overrides=ovv or {})]
     if HAS_TESTB and os.path.exists(testb_path):
         parts.append(pl.read_csv(testb_path, schema_overrides=ovv or {}))
         print(f"  + {os.path.basename(testb_path)}: {parts[-1].shape}")
     df = pl.concat(parts, how="vertical")
+    if dedup_on:
+        before = df.height
+        df = df.unique(subset=dedup_on, keep="first")
+        dropped = before - df.height
+        if dropped:
+            print(f"  ⚠ {name}: 按 {dedup_on} 去重，丢弃 {dropped} 条重复记录"
+                  "（同一客户/卡在 train_testa 与 testb 两份文件中都出现）")
     df.write_parquet(P(name + ".parquet"))
     return df
 
@@ -61,16 +73,19 @@ card = conv_concat(
     os.path.join(TRAIN_DIR, "card_info_train_testa.csv"),
     os.path.join(TESTB_DIR, "card_info_testb.csv"), "card",
     {"card_no": pl.Utf8, "prim_cst_accno": pl.Utf8, "cst_id": pl.Utf8,
-     "crdisu_lvl1_insid": pl.Utf8, "crdisu_lvl2_insid": pl.Utf8})
+     "crdisu_lvl1_insid": pl.Utf8, "crdisu_lvl2_insid": pl.Utf8},
+    dedup_on=["card_no"])
 cst = conv_concat(
     os.path.join(TRAIN_DIR, "cst_info_train_testa.csv"),
     os.path.join(TESTB_DIR, "cst_info_testb.csv"), "cst",
     {"cst_id": pl.Utf8, "gender": pl.Utf8, "marital_status": pl.Utf8,
-     "occupation": pl.Utf8, "industry": pl.Utf8})
+     "occupation": pl.Utf8, "industry": pl.Utf8},
+    dedup_on=["cst_id"])
 accno = conv_concat(
     os.path.join(TRAIN_DIR, "accno_info_train_testa.csv"),
     os.path.join(TESTB_DIR, "accno_info_testb.csv"), "accno",
-    {"card_no": pl.Utf8, "cst_accno": pl.Utf8})
+    {"card_no": pl.Utf8, "cst_accno": pl.Utf8},
+    dedup_on=["card_no", "cst_accno"])
 
 # ⚠ train.csv 的 label 是 "0.0"/"1.0" 浮点文本，直接按 Int8 读会得到 null
 train = pl.read_csv(os.path.join(TRAIN_DIR, "train.csv"),

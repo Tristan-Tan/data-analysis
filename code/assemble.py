@@ -52,6 +52,10 @@ def build(keys, enc, feat, infeat, sil, cols=None):
              .merge(enc, on="card_no", how="left")
              .merge(infeat, on="card_no", how="left")
              .merge(sil, on="card_no", how="left"))
+    assert len(d) == len(keys), (
+        f"特征拼接后行数 {len(d)} != 输入卡数 {len(keys)}，"
+        "说明 feat/enc/infeat/sil 某张表里 card_no（或其上游主键如 cst_id）"
+        "不唯一导致 left join 行数膨胀，请检查 01_parse_raw.py 的去重逻辑")
     d[ec] = d[ec].fillna(0)          # 暴露编码缺失 = 无暴露，填 0
     d = _wealth(d)
     if cols is None:
