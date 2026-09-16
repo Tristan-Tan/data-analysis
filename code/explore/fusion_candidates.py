@@ -50,30 +50,51 @@ for k, name in need.items():
     assert os.path.exists(po) and os.path.exists(pt), f"缺少 {name} 的 npy"
     oof[k], tev[k] = np.load(po), np.load(pt)
 for mode in ("full", "partial"):
-    po, pt = P(f"oof_nosil_{mode}.npy"), P(f"te_nosil_{mode}.npy")
-    if os.path.exists(po) and os.path.exists(pt):
-        oof[mode], tev[mode] = np.load(po), np.load(pt)
+    # 早期版本的 no_silence_variant.py 存的是不带 mode 后缀的文件名（那次跑的
+    # 就是 full 模式），这里一并兼容，免得还要手动重命名
+    cands = [(P(f"oof_nosil_{mode}.npy"), P(f"te_nosil_{mode}.npy"))]
+    if mode == "full":
+        cands.append((P("oof_nosil.npy"), P("te_nosil.npy")))
+    for po, pt in cands:
+        if os.path.exists(po) and os.path.exists(pt):
+            oof[mode], tev[mode] = np.load(po), np.load(pt)
+            print(f"  {mode:<8} <- {os.path.basename(po)}")
+            break
+    else:
+        print(f"  {mode:<8} <- 未找到 npy，相关候选将跳过")
 print(f"已载入成员: {list(oof)}   {time.time()-t0:.0f}s")
 
 tr = pd.read_parquet(P("train.parquet"))
 y = tr["label"].astype(float).astype(np.int8).values
 
 # ---------------- 候选融合结构 ----------------
+# partial 强但与现有三族同质（换动少），full 弱但真正异构（换动多）。
+# 按 full 权重递增排成一条权衡曲线，找「换动刚够 20~150、OOF 掉得最少」的点。
 CANDIDATES = {
     "base3(已提交662)":      ["dart", "abthin", "cat"],
+    # --- partial 系：强但同质，靠加权也撬不动排序 ---
     "+partial":              ["dart", "abthin", "cat", "partial"],
-    "+full":                 ["dart", "abthin", "cat", "full"],
-    "+both(五族)":           ["dart", "abthin", "cat", "partial", "full"],
     "swap_cat->partial":     ["dart", "abthin", "partial"],
-    "swap_cat->full":        ["dart", "abthin", "full"],
     "partial_x2":            ["dart", "abthin", "cat", "partial", "partial"],
     "partial_x3":            ["dart", "abthin", "cat",
                               "partial", "partial", "partial"],
+    # --- full 系：按权重递增，换动随之上升、OOF 随之下降 ---
+    "+full":                 ["dart", "abthin", "cat", "full"],
+    "full_x2":               ["dart", "abthin", "cat", "full", "full"],
+    "full_x3":               ["dart", "abthin", "cat", "full", "full", "full"],
+    "swap_cat->full":        ["dart", "abthin", "full"],
+    # --- 两个新成员同时进来 ---
+    "+both(五族)":           ["dart", "abthin", "cat", "partial", "full"],
+    "partial+full_x2":       ["dart", "abthin", "cat",
+                              "partial", "full", "full"],
     "partial_x2+full":       ["dart", "abthin", "cat",
                               "partial", "partial", "full"],
 }
+_skipped = [k for k, v in CANDIDATES.items() if not all(m in oof for m in v)]
 CANDIDATES = {k: v for k, v in CANDIDATES.items()
               if all(m in oof for m in v)}
+if _skipped:
+    print(f"⚠ 因成员缺失跳过的候选: {_skipped}")
 
 # ---------------- 硬规则所需的 sil_days ----------------
 te = pd.read_parquet(P("testb.parquet"))
@@ -94,7 +115,9 @@ def testb_score(members):
 
 
 k_te = int(len(te) * TOP_FRAC)
-base_top = set(np.argsort(-testb_score(CANDIDATES["base3(已提交662)"]))[:k_te])
+BASE = "base3(已提交662)"
+base_top = set(np.argsort(-testb_score(CANDIDATES[BASE]))[:k_te])
+_, tp_base = top1_f1(y, blend([oof[m] for m in CANDIDATES[BASE]]))
 
 rows = []
 scores = {}
@@ -102,16 +125,22 @@ for name, members in CANDIDATES.items():
     _, tp = top1_f1(y, blend([oof[m] for m in members]))
     s = testb_score(members)
     scores[name] = s
-    top = set(np.argsort(-s)[:k_te])
+    swap = k_te - len(set(np.argsort(-s)[:k_te]) & base_top)
+    ok = name != BASE and 20 <= swap <= 150 and tp - tp_base >= -10
     rows.append({"候选": name,
                  "OOF": f"{tp}/3000",
-                 "OOF差": tp - 2772,
-                 f"top{k_te}换动": k_te - len(top & base_top)})
+                 "OOF差": tp - tp_base,
+                 f"top{k_te}换动": swap,
+                 "推荐": "★" if ok else ""})
 
 print("\n" + "=" * 78)
-print("【融合候选对比】（OOF差 以已提交的 base3=2772 为基准）")
+print(f"【融合候选对比】（OOF差 以 base3={tp_base} 为基准；"
+      "★ = 换动 20~150 且 OOF差 >= -10）")
 d = pd.DataFrame(rows)
 print(d.to_string(index=False))
+n_ok = int((d["推荐"] == "★").sum())
+print(f"\n满足条件的候选: {n_ok} 个"
+      + ("" if n_ok else "  -> 成员彼此过于相关，融合已无空间，建议停止投入"))
 
 # ---------------- 写出候选提交文件 ----------------
 print()
