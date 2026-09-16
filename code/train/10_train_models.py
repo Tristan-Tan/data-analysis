@@ -43,6 +43,7 @@ from account_balance import (THIN_COLS, append_features,
                              load_or_create_features)
 
 t0 = time.time()
+TARGET = sys.argv[1] if len(sys.argv) > 1 else "testa"   # testa / testb
 
 
 def train_lgb_family(X, y, Xte, cols, folds, family, extra, seeds):
@@ -97,7 +98,7 @@ def main():
     m0 = Xbase.loc[y == 0, "in_vs_aum"].mean()
     print(f"自检 in_vs_aum: label1={m1:.2f} label0={m0:.2f}  （应约 178 / 21）")
 
-    te, Xte_base = build_test_folds("testa", N_FOLDS, base_cols)
+    te, Xte_base = build_test_folds(TARGET, N_FOLDS, base_cols)
     print(f"基础测试矩阵 {Xte_base[0].shape} × {N_FOLDS} 份（fold-matched）")
 
     ab = load_or_create_features()
