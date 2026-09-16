@@ -26,6 +26,18 @@
 
 ⚠ 锚点：复赛必须先确认 testb 的末笔日期分布未平移（见说明文档 §三.1）。
 
+【B 榜实测更新】testB 末笔日期整体比 train/testA 晚了约一个月（testB 是独立
+于 A 榜快照的、更晚抽取的一批数据，不是几天量级的漂移）。实测证实：若强行
+用"全量最大值"做单一锚点，train 侧 sil_days 会被整体拉高约 30 天（label0
+均值 7.92→37.92，sil≥30 占比从 1.78%→100%），特征完全失去区分度。
+
+正确处理：**train+testA 与 testB 分别使用各自批次内部的末笔日期最大值作为
+锚点**（而不是审查材料 §三.1 原计划里"统一锚点、同步重算训练侧"的方案——
+该方案只适用于几天量级的漂移，遇到整月量级的批次间隔并不成立）。train 侧
+锚点因此保持 A 榜原值不变，sil_days 数值与 A 榜完全一致；testB 侧单独用
+自己的末笔日期最大值定锚，语义上仍是"该卡距其所属批次快照时间点的沉默
+天数"，两批次可比。
+
 输出: data/interim/silence_feat.parquet   耗时约 2 分钟
 """
 import os
@@ -83,21 +95,40 @@ def main():
     df["card_no"] = df["card_no"].astype(str)
     del g
 
-    # ---- 锚点：全量末笔日期的最大值，写盘供复赛核对 ----
-    anchor_dt = pd.Timestamp(df["last_dt"].max())
-    anchor_ts = anchor_dt + pd.Timedelta(days=1)
-    print(f"锚点 ANCHOR_DATE = {anchor_dt.date()}")
+    # ---- 锚点：train+testA 与 testB 分属两个独立快照批次，各自用批次内部
+    #      末笔日期最大值定锚（不可强行统一，见上方模块说明）----
+    testb_path = P("testb.parquet")
+    has_testb = os.path.exists(testb_path)
+    if has_testb:
+        testb_cards = set(pd.read_parquet(testb_path)["card_no"].astype(str))
+        df["is_testb"] = df["card_no"].isin(testb_cards)
+    else:
+        df["is_testb"] = False
+
+    anchor_a = pd.Timestamp(df.loc[~df["is_testb"], "last_dt"].max())
+    if has_testb and df["is_testb"].any():
+        anchor_b = pd.Timestamp(df.loc[df["is_testb"], "last_dt"].max())
+    else:
+        anchor_b = anchor_a
+    print(f"锚点 ANCHOR_A(train+testA) = {anchor_a.date()}  "
+          f"ANCHOR_B(testB) = {anchor_b.date()}")
     with open(os.path.join(INTERIM, "silence_anchor.json"), "w") as f:
-        json.dump({"anchor_date": str(anchor_dt.date()),
-                   "note": "复赛必须沿用同一锚点；若 testb 末笔日整体平移，"
-                           "改用 testb last_dt 的 P99.9 校准，并同步重算 train 侧"},
+        json.dump({"anchor_date_a": str(anchor_a.date()),
+                   "anchor_date_b": str(anchor_b.date()) if has_testb else None,
+                   "note": "train+testA 与 testB 分属不同快照批次，各自用"
+                           "批次内部末笔日期最大值定锚，不做跨批次统一"},
                   f, ensure_ascii=False, indent=2)
 
+    anchor_dt_row = pd.Series(np.where(df["is_testb"], anchor_b, anchor_a),
+                              index=df.index)
+    anchor_dt_row = pd.to_datetime(anchor_dt_row)
+    anchor_ts_row = anchor_dt_row + pd.Timedelta(days=1)
+
     ld, fd = pd.to_datetime(df["last_dt"]), pd.to_datetime(df["first_dt"])
-    df["sil_days"] = (anchor_dt - ld).dt.days.astype(np.int32)
-    df["sil_hours"] = ((anchor_ts - pd.to_datetime(df["last_tms"]))
+    df["sil_days"] = (anchor_dt_row - ld).dt.days.astype(np.int32)
+    df["sil_hours"] = ((anchor_ts_row - pd.to_datetime(df["last_tms"]))
                        .dt.total_seconds() / 3600.0).astype(np.float32)
-    df["first_sil_days"] = (anchor_dt - fd).dt.days.astype(np.int32)
+    df["first_sil_days"] = (anchor_dt_row - fd).dt.days.astype(np.int32)
     df["span_days"] = (ld - fd).dt.days.astype(np.int32)
     # 数据抽取伪影：正常卡末笔必在窗口起点之后，故 sil>=32 的卡在 train 中 100% 为欺诈
     df["sil_beyond_norm"] = (df["sil_days"] >= 32).astype(np.int8)
