@@ -38,6 +38,12 @@
 自己的末笔日期最大值定锚，语义上仍是"该卡距其所属批次快照时间点的沉默
 天数"，两批次可比。
 
+**同理，组内分位族（sil_pct_in_ntxn_bin 等 4 维）也必须按批次分别排名。**
+B 榜首次提交 663/754 后的对抗验证发现：混合池排名下 testB 的
+sil_pct_in_ntxn_bin 系统性偏低（train 0.5177 vs testB 0.4122），而该维是
+dart 模型 gain 排名第 4、该族合计占 9.53% gain 的强特征，偏移直接让模型
+阈值失准。分批次后两侧池内均值都回到 ≈0.5。
+
 输出: data/interim/silence_feat.parquet   耗时约 2 分钟
 """
 import os
@@ -155,12 +161,34 @@ def main():
     df["sil_div_span"] = s / (df["span_days"] + 1.0)
 
     # ---- 组内分位（label-free，GBDT 学不出来）----
-    nb = pd.qcut(df["n_txn"], 20, labels=False, duplicates="drop")
-    df["sil_pct_in_ntxn_bin"] = df.groupby(nb)["sil_days"].rank(pct=True).astype(np.float32)
-    sb = np.minimum(df["sil_days"], 32)
-    df["ntxn_pct_in_sil_bin"] = df.groupby(sb)["n_txn"].rank(pct=True).astype(np.float32)
-    df["bal_pct_in_sil_bin"] = df.groupby(sb)["bal_last"].rank(pct=True).astype(np.float32)
-    df["insum_pct_in_sil_bin"] = df.groupby(sb)["in_sum"].rank(pct=True).astype(np.float32)
+    # ⚠ 必须**按批次分别计算**，理由同锚点：train+testA 与 testB 是两个独立
+    #   快照，该特征的语义是"在同批次同类卡里的相对沉默位置"，混在一个池子
+    #   里排名会让两侧同一分位值含义不一致。
+    #   B 榜实测：混合池排名下 testB 因 sil_days 整体略小而系统性偏低
+    #   （train 0.5177 vs testB 0.4122），而 S_sil_pct_in_ntxn_bin 是 dart 里
+    #   gain 排名第 4 的特征，该族合计占 9.53% gain，偏移直接让模型阈值失准。
+    #   分批次后两侧池内均值都会回到 ≈0.5，train 侧数值亦恢复 A 榜原值。
+    PCT_COLS = ["sil_pct_in_ntxn_bin", "ntxn_pct_in_sil_bin",
+                "bal_pct_in_sil_bin", "insum_pct_in_sil_bin"]
+    for c in PCT_COLS:
+        df[c] = np.nan
+
+    for tag, mask in [("train+testA", ~df["is_testb"]), ("testB", df["is_testb"])]:
+        if not mask.any():
+            continue
+        sub = df.loc[mask]
+        nb = pd.qcut(sub["n_txn"], 20, labels=False, duplicates="drop")
+        sb = np.minimum(sub["sil_days"], 32)
+        df.loc[mask, "sil_pct_in_ntxn_bin"] = sub.groupby(nb)["sil_days"].rank(pct=True)
+        df.loc[mask, "ntxn_pct_in_sil_bin"] = sub.groupby(sb)["n_txn"].rank(pct=True)
+        df.loc[mask, "bal_pct_in_sil_bin"] = sub.groupby(sb)["bal_last"].rank(pct=True)
+        df.loc[mask, "insum_pct_in_sil_bin"] = sub.groupby(sb)["in_sum"].rank(pct=True)
+        print(f"  组内分位[{tag}] n={int(mask.sum())} "
+              f"sil_pct_in_ntxn_bin 均值={df.loc[mask, 'sil_pct_in_ntxn_bin'].mean():.4f}"
+              "（池内 pct rank，应 ≈0.5）")
+
+    for c in PCT_COLS:
+        df[c] = df[c].astype(np.float32)
 
     df = df[["card_no"] + SIL_COLS + SIL_HELPER].copy()
     for c in SIL_COLS + SIL_HELPER:
