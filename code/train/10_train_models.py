@@ -43,7 +43,11 @@ from account_balance import (THIN_COLS, append_features,
                              load_or_create_features)
 
 t0 = time.time()
+# ⚠ 不传参数默认 testa。B 榜阶段务必显式传 testb，否则会训出针对 testA 的
+#   测试矩阵（若 testa 侧编码文件恰好还在，会静默跑完 2.5 小时才发现跑错）。
 TARGET = sys.argv[1] if len(sys.argv) > 1 else "testa"   # testa / testb
+print(f"===== 本次训练目标测试集: {TARGET} "
+      f"{'（默认值，如需 B 榜请传入 testb）' if len(sys.argv) <= 1 else ''}=====")
 
 
 def train_lgb_family(X, y, Xte, cols, folds, family, extra, seeds):
