@@ -1,0 +1,15 @@
+# Python 字节码（py_compile / 导入时自动生成，不属于审查材料）
+__pycache__/
+*.py[cod]
+
+# 运行期产物：只保留目录骨架（.gitkeep / README.md），数据本身不入库。
+# 原始数据仅存在于内网，中间 parquet、模型与预测结果均可由代码重新生成。
+data/train/*
+data/testA/*
+data/testB/*
+data/interim/*
+data/interim_labB/
+model/*
+prediction_result/*
+!data/README.md
+!**/.gitkeep
