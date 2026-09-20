@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """07b smy_cd 加权目标编码（1 维，fold-safe + fold-matched）
 
-验证依据（见 code/explore/{field_value_check,smy_te_corr_check,smy_te_lift_check}.py）：
+引入依据（详见说明文档 §一.6）：
   · 单变量 AUC = 0.7714，与已有 299 维特征最高相关仅 0.4767（低于 silence
     族当初 0.491 的参考线）→ 判定为现有 Top95 smy one-hot 展开未覆盖的新信息
   · 单一 LightGBM 5 折 OOF 快速验证：401 维 -> 402 维，top1_f1 0.9163 -> 0.9190，
