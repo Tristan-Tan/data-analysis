@@ -18,7 +18,7 @@ import sys
 
 import numpy as np
 import pandas as pd
-from scipy.stats import rankdata
+from scipy.stats import rankdata, spearmanr
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import PRED_DIR, TOP_FRAC, SPEC, ROUND
@@ -56,6 +56,36 @@ tr = set(ref.nlargest(K, "score")["card_no"])
 tn = set(new.nlargest(K, "score")["card_no"])
 inter = len(tr & tn)
 print(f"\ntop{K} 集合重叠: {inter}/{K}   差异 {K - inter} 张")
+
+# ---- 整体排序是否一致：把"边界抖动"与"链路有实质差异"定量区分开 ----
+m = ref[["card_no", "score"]].rename(columns={"score": "s_ref"}).merge(
+    new[["card_no", "score"]].rename(columns={"score": "s_new"}), on="card_no")
+assert len(m) == len(ref), "按卡号对齐后行数异常"
+r_ref = rankdata(-m["s_ref"].values, method="ordinal")
+r_new = rankdata(-m["s_new"].values, method="ordinal")
+rho = spearmanr(r_ref, r_new).correlation
+disp = np.abs(r_ref - r_new)
+print(f"\n【整体排序一致性】")
+print(f"  全量 {len(m):,} 张卡的 Spearman: {rho:.6f}")
+print(f"  名次位移 |Δrank|: p50={int(np.median(disp))} "
+      f"p99={int(np.percentile(disp, 99))} max={int(disp.max())}")
+print(f"  位移 > {K} 名的卡: {int((disp > K).sum())} 张"
+      f"（占 {(disp > K).mean():.4%}）")
+
+# ---- 边界有多密：分数几乎并列时，谁进 top-K 本就由浮点末位决定 ----
+srt = np.sort(m["s_ref"].values)[::-1]
+span = srt[0] - srt[-1]
+lo, hi = max(K - 60, 0), min(K + 60, len(srt) - 1)
+if span > 0:
+    print(f"\n【边界密度（参照文件）】")
+    ratio = (srt[lo] - srt[hi]) / span
+    print(f"  第 {lo}~{hi} 名的分数跨度占全量极差的 {ratio:.4%}")
+    if ratio < 0.01:
+        print("  => 边界处分数近乎并列，谁进 top-K 由浮点末位决定，"
+              "\n     差异卡集中在边界属 best_iteration 抖动的正常表现")
+    else:
+        print("  => 边界分数并不密集，差异卡需要更谨慎看待，"
+              "\n     应结合上面的 Spearman 与名次位移一并判断")
 
 if inter == K:
     print("\n  ✔ 完全一致。新链路与当初取得该成绩的链路逐环节等价，")
