@@ -76,6 +76,28 @@ def main():
     print(f"基础矩阵 train{Xtr.shape} / testB{Xte_list[0].shape}"
           f"   {time.time()-t0:.0f}s")
 
+    # ⚠ 一致性校验：nosil 两族必须与 10_train_models.py 训出的三族**共用同一
+    #   套基础列**。若复用了此前训好的三族模型、而本次算出的列有任何出入，
+    #   两批模型在 predict 时会对不上，且不会报错——这里提前拦住。
+    fc = M("feature_cols.json")
+    if os.path.exists(fc):
+        with open(fc) as f:
+            saved = json.load(f)
+        if saved != cols:
+            only_saved = [c for c in saved if c not in set(cols)]
+            only_now = [c for c in cols if c not in set(saved)]
+            raise SystemExit(
+                "基础特征列与 model/B/feature_cols.json 不一致，已中止。\n"
+                f"  已落盘 {len(saved)} 维 / 本次算出 {len(cols)} 维\n"
+                f"  仅在已落盘中: {only_saved[:8]}\n"
+                f"  仅在本次中:   {only_now[:8]}\n"
+                "顺序不同也算不一致。请确认三族模型与本步跑在同一份中间产物上；"
+                "若中间产物已变，请连同 10_train_models.py 一起重跑。")
+        print(f"  ✔ 基础列与已落盘的三族模型一致（{len(cols)} 维）")
+    else:
+        print("  注意：未找到 feature_cols.json，本步无法校验与三族的列一致性；"
+              "请确认稍后会运行 10_train_models.py")
+
     folds = list(StratifiedKFold(N_FOLDS, shuffle=True,
                                  random_state=FOLD_SEED).split(Xtr, y))
     params = dict(LGB_BASE, seed=NOSIL_SEED)
