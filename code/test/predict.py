@@ -1,24 +1,30 @@
 # -*- coding: utf-8 -*-
-"""预测：加载 model/ 下已训练好的模型，输出提交文件
+"""预测：加载 model/{赛段}/ 下已训练好的模型，输出提交文件
 
 用法:
-    python code/test/predict.py            # 预测 testA（默认）
-    python code/test/predict.py testb      # 预测 testB（复赛）
+    bash code/scripts/run_predict.sh A      # 初赛 -> prediction_resultA.csv
+    bash code/scripts/run_predict.sh B      # 复赛 -> prediction_resultB.csv
+
+**本脚本不训练**，只加载落盘模型，耗时约 3~5 分钟。
 
 流程:
   1. 用与训练完全相同的 assemble 代码构建测试矩阵（5 份 fold-matched）
   2. 第 k 折的模型预测第 k 份矩阵，5 折平均 -> 该 seed 的预测
   3. 同族多 seed 做 rank 平均 -> 族预测
-  4. dart(401) / abthin_lgbn(408) / cat(401) 三族 rank 等权平均
+  4. 按 config.SPEC["blend"] 做 rank 等权平均，**列表里重复出现即表示权重**
+        A 榜: dart + abthin_lgbn + cat
+        B 榜: dart + abthin_lgbn + cat + nosil_partial×2 + nosil_full×1
   5. 硬规则：sil_days >= 32 的卡置顶（train 中该条件下 8/8 全为欺诈）
-  6. 按测试集主键顺序回填，写出 prediction_result/prediction_resultA.csv
+  6. 按测试集主键顺序回填，保证行数与顺序与原测试集 csv 完全一致
 
-耗时: 约 3 分钟（不训练）
+⚠ 模型保存时已按 best_iteration 截断（save_model(num_iteration=...)），
+  因此这里不再传迭代数，predict 默认用全部树即为当时的最优迭代。
 """
 import os
 import sys
 import json
 import time
+from collections import OrderedDict
 
 import numpy as np
 import pandas as pd
@@ -27,32 +33,41 @@ from catboost import CatBoostClassifier
 from scipy.stats import rankdata
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from config import P, MODEL_DIR, PRED_DIR, N_FOLDS, FINAL_RECIPE
+from config import (P, M, MODEL_DIR, PRED_DIR, N_FOLDS, FINAL_RECIPE,
+                    NOSIL_SEED, HARD_SIL_DAYS, TOP_FRAC, SPEC, ROUND, banner)
 from assemble import build_test_folds
 from account_balance import (THIN_COLS, append_features,
                              load_or_create_features)
 
 t0 = time.time()
-TARGET = sys.argv[1] if len(sys.argv) > 1 else "testa"
-OUT_NAME = "prediction_resultA.csv" if TARGET == "testa" else "prediction_resultB.csv"
 
 
 def R(v):
     return rankdata(v) / len(v)
 
 
-def predict_family(Xte, cols, family, seeds):
+def _load_cols(fname):
+    p = M(fname)
+    assert os.path.exists(p), (
+        f"缺少列顺序文件 {p}\n请先按 README 运行 run_train.sh {ROUND}")
+    with open(p) as f:
+        return json.load(f)
+
+
+def predict_family(Xte, cols, family, seeds, is_cat=False):
+    """同族多 seed 的 rank 平均。每个 seed 内部先做 5 折平均。"""
     acc = np.zeros(len(Xte[0]))
     for sd in seeds:
         pte = np.zeros(len(Xte[0]))
         for k in range(N_FOLDS):
-            if family == "cat":
-                p = os.path.join(MODEL_DIR, f"cat_s{sd}_f{k}.cbm")
+            ext = "cbm" if is_cat else "txt"
+            p = M(f"{family}_s{sd}_f{k}.{ext}")
+            assert os.path.exists(p), f"缺少模型 {p}"
+            if is_cat:
                 m = CatBoostClassifier()
                 m.load_model(p)
                 pte += m.predict_proba(Xte[k][cols])[:, 1] / N_FOLDS
             else:
-                p = os.path.join(MODEL_DIR, f"{family}_s{sd}_f{k}.txt")
                 m = lgb.Booster(model_file=p)
                 pte += m.predict(Xte[k][cols]) / N_FOLDS
         acc += R(pte)
@@ -61,53 +76,64 @@ def predict_family(Xte, cols, family, seeds):
 
 
 def main():
-    with open(os.path.join(MODEL_DIR, "feature_cols.json")) as f:
-        base_cols = json.load(f)
-    with open(os.path.join(
-            MODEL_DIR, "account_balance_thin_feature_cols.json")) as f:
-        thin_cols = json.load(f)
+    banner("predict")
+    base_cols = _load_cols("feature_cols.json")
+    thin_cols = _load_cols("account_balance_thin_feature_cols.json")
     assert thin_cols == base_cols + THIN_COLS, "AB-thin 特征列或顺序不一致"
 
-    te, Xte_base = build_test_folds(TARGET, N_FOLDS, base_cols)
+    te, Xte_base = build_test_folds(N_FOLDS, base_cols)
     ab = load_or_create_features()
-    Xte_thin = [append_features(x, te[["card_no"]], ab)
-                for x in Xte_base]
-    print(
-        f"测试矩阵 base={Xte_base[0].shape} AB-thin={Xte_thin[0].shape} "
-        f"× {N_FOLDS} 份   {time.time()-t0:.0f}s"
-    )
+    Xte_thin = [append_features(x, te[["card_no"]], ab) for x in Xte_base]
+    print(f"测试矩阵 base={Xte_base[0].shape} AB-thin={Xte_thin[0].shape}"
+          f" × {N_FOLDS} 份   {time.time()-t0:.0f}s")
 
-    fam = {
-        "dart": predict_family(
-            Xte_base, base_cols, "dart", FINAL_RECIPE["dart"]),
-        "abthin_lgbn": predict_family(
-            Xte_thin, thin_cols, "abthin_lgbn", FINAL_RECIPE["lgbn"]),
-        "cat": predict_family(
-            Xte_base, base_cols, "cat", FINAL_RECIPE["cat"]),
-    }
+    # 每族只算一次；blend 里重复出现的成员复用缓存，不重复推理
+    blend = SPEC["blend"]
+    print(f"融合配方（重复即权重）: {blend}")
+    fam = OrderedDict()
+    for name in blend:
+        if name in fam:
+            continue
+        if name == "dart":
+            fam[name] = predict_family(Xte_base, base_cols, "dart",
+                                       FINAL_RECIPE["dart"])
+        elif name == "abthin_lgbn":
+            fam[name] = predict_family(Xte_thin, thin_cols, "abthin_lgbn",
+                                       FINAL_RECIPE["lgbn"])
+        elif name == "cat":
+            fam[name] = predict_family(Xte_base, base_cols, "cat",
+                                       FINAL_RECIPE["cat"], is_cat=True)
+        elif name.startswith("nosil_"):
+            cols = _load_cols(f"{name}_feature_cols.json")
+            assert set(cols) <= set(base_cols), \
+                f"{name} 的列不是基础列的子集，特征版本不一致"
+            fam[name] = predict_family(Xte_base, cols, name, [NOSIL_SEED])
+        else:
+            raise ValueError(f"未知的融合成员 {name}")
 
-    score = R(np.mean([
-        R(fam["dart"]), R(fam["abthin_lgbn"]), R(fam["cat"])
-    ], axis=0))
+    score = R(np.mean([R(fam[n]) for n in blend], axis=0))
 
     # 硬规则：数据抽取伪影 —— 正常卡末笔必在窗口起点之后
     sil = pd.read_parquet(P("silence_feat.parquet"),
                           columns=["card_no", "sil_days"])
     sil["card_no"] = sil["card_no"].astype(str)
     sv = te.merge(sil, on="card_no", how="left")["sil_days"].values
-    n_hard = int((sv >= 32).sum())
+    n_hard = int((sv >= HARD_SIL_DAYS).sum())
     if n_hard:
-        score[sv >= 32] = 1.0
-    print(f"硬规则命中 {n_hard} 张（sil_days >= 32）")
+        score[sv >= HARD_SIL_DAYS] = 1.0
+    print(f"硬规则命中 {n_hard} 张（sil_days >= {HARD_SIL_DAYS}）")
 
     # 按测试集主键顺序回填（硬约束）
     sub = te[["card_no"]].copy()
     sub["score"] = score
     assert len(sub) == len(te)
     assert (sub["card_no"].values == te["card_no"].values).all()
-    out = os.path.join(PRED_DIR, OUT_NAME)
+    out = os.path.join(PRED_DIR, SPEC["out_name"])
     sub.to_csv(out, index=False)
-    print(f"已写出 {out}   {sub.shape}   {time.time()-t0:.0f}s")
+    k = int(len(sub) * TOP_FRAC)
+    print(f"\n已写出 {out}   {sub.shape}")
+    print(f"  判正张数 top{TOP_FRAC:.0%} = {k}；本赛段官方成绩 {SPEC['score']}")
+    print(f"  完成 {time.time()-t0:.0f}s")
 
 
 if __name__ == "__main__":

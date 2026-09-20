@@ -67,7 +67,7 @@ print("\n" + "=" * 90)
 print("【段零】基线重建与对齐核对")
 print("=" * 90)
 tr, Xtr, y, cols = assemble.build_train()
-te, Xte_list = assemble.build_test_folds(TARGET, N_FOLDS, cols)
+te, Xte_list = assemble.build_test_folds(N_FOLDS, cols)
 print(f"  训练矩阵 {Xtr.shape} / {TARGET} {Xte_list[0].shape}   {sec()}")
 
 oof = {m: np.load(P(f"oof_{m}.npy")) for m in BASE3}

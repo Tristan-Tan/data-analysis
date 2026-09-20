@@ -6,9 +6,10 @@ out_n/out_sum = 该卡向该对手的出金笔数/金额；in_n/in_sum 对称；
 import os, sys, time
 import polars as pl
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from config import P
+from config import P, banner
 
 t0 = time.time()
+banner("06_edge_tables")
 txn = pl.read_parquet(P("txn.parquet"))
 base = txn.select(["card_no", "cntrprt_card_no", "cntrprt_name",
                    "cntrprt_prvt_ind", "inflow_amt", "outflow_amt"])

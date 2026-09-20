@@ -7,9 +7,18 @@ __pycache__/
 data/train/*
 data/testA/*
 data/testB/*
-data/interim/*
+data/interim_A/*
+data/interim_B/*
 data/interim_labB/
+data/interim/
 model/*
+!model/A/
+!model/B/
+model/A/*
+model/B/*
 prediction_result/*
 !data/README.md
 !**/.gitkeep
+
+# CatBoost 训练时在工作目录生成的日志，不属于审查材料
+catboost_info/

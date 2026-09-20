@@ -1,15 +1,20 @@
 # -*- coding: utf-8 -*-
 """特征矩阵组装 —— 训练与预测**共用同一份代码**，杜绝两侧口径漂移。
 
-402 维构成：
+维度按赛段不同：A 榜 401 维（不含 smy_te），B 榜 402 维（含 smy_te）。
+是否启用 smy_te 由 `config.SPEC["use_smy_te"]` **显式决定**，
+不依赖 smy_te parquet 文件是否存在 —— 跑完 B 榜后该文件会留在
+interim_B 里，靠"文件存在与否"判断会让 A 榜链路误带上该维度。
+
+401/402 维构成：
     299  features_v4        窗口聚合 / 尾部行为 / smy 与渠道展开 / 静态表
      56  exp5 暴露编码       8 变体 × 7 统计（fold-safe）
      19  inflow_feat        入金侧 label-free（发送方扇入度等）
       5  财富归一            见下方公式，v12 的胜负手
      22  silence 族          本方案核心创新
-      1  smy_te             smy_cd 加权目标编码（fold-safe/fold-matched，
-                             同 exp5 口径；单变量 AUC 0.7714，与已有特征
-                             最高相关仅 0.4767，OOF 快速验证 +8 命中）
+      1  smy_te             smy_cd 加权目标编码（**仅 B 榜**，fold-safe/
+                             fold-matched，同 exp5 口径；单变量 AUC 0.7714，
+                             与已有特征最高相关仅 0.4767）
 """
 import gc
 import os
@@ -17,7 +22,7 @@ import os
 import numpy as np
 import pandas as pd
 
-from config import P, SIL_COLS
+from config import P, SIL_COLS, SPEC, TARGET
 
 
 def _wealth(d):
@@ -70,17 +75,24 @@ def build(keys, enc, feat, infeat, sil, cols=None):
     return X, cols
 
 
-def _merge_smy_te(enc, target, k=None):
-    """把 07b 生成的 smy_te（fold-safe/fold-matched）合并进 enc，
-    复用 enc 已有的 'ec = exp5 列' 通用处理逻辑（merge / fillna(0)）。
-    target: 'train' | 'testa' | 'testb'；k 仅测试侧使用（第几折）。"""
-    if target == "train":
-        smy_te = pd.read_parquet(P("smy_te_tr.parquet"))
+def _merge_smy_te(enc, side, k=None):
+    """把 07b 生成的 smy_te（fold-safe/fold-matched）合并进 enc。
+    side: 'train' | 'test'；k 仅测试侧使用（第几折）。
+
+    ⚠ 是否启用由 SPEC["use_smy_te"] 决定。A 榜最终提交不含该维度，
+      直接原样返回 —— 这条分支正是 A 榜 401 维复现路径，
+      旧版本在此处无条件读 parquet，导致"跳过 07b"的复现说明根本走不通。"""
+    if not SPEC["use_smy_te"]:
+        return enc
+    if side == "train":
+        p = P("smy_te_tr.parquet")
     else:
-        pfx = "smy_te_te" if target == "testa" else "smy_te_teb"
+        pfx = "smy_te_te" if TARGET == "testa" else "smy_te_teb"
         p = P(f"{pfx}_f{k}.parquet")
-        assert os.path.exists(p), f"缺少 smy_te fold-matched 编码 {p}，请先跑 07b"
-        smy_te = pd.read_parquet(p)
+    assert os.path.exists(p), (
+        f"缺少 smy_te 编码 {p}。本赛段 use_smy_te=True，请先运行 "
+        "code/train/07b_smy_te_encoding.py")
+    smy_te = pd.read_parquet(p)
     smy_te["card_no"] = smy_te["card_no"].astype(str)
     return enc.merge(smy_te, on="card_no", how="left")
 
@@ -97,9 +109,10 @@ def build_train(cols=None):
     return tr, X, y, cols
 
 
-def build_test_folds(target, n_folds, cols):
-    """返回 5 份测试矩阵，第 k 份使用 fold-matched 的 exp5 + smy_te 编码。
-    target: 'testa' | 'testb'"""
+def build_test_folds(n_folds, cols, target=None):
+    """返回 5 份测试矩阵，第 k 份使用 fold-matched 的 exp5（+ smy_te）编码。
+    target 默认取赛段规格里的目标测试集，一般无需显式传入。"""
+    target = target or TARGET
     te = pd.read_parquet(P(f"{target}.parquet"))
     te["card_no"] = te["card_no"].astype(str)
     feat, infeat, sil = load_parts()
@@ -110,7 +123,7 @@ def build_test_folds(target, n_folds, cols):
         assert os.path.exists(p), f"缺少 fold-matched 编码 {p}，请先跑 07"
         enc = pd.read_parquet(p)
         enc["card_no"] = enc["card_no"].astype(str)
-        enc = _merge_smy_te(enc, target, k)
+        enc = _merge_smy_te(enc, "test", k)
         X, _ = build(te[["card_no"]], enc, feat, infeat, sil, cols)
         Xs.append(X)
     return te, Xs

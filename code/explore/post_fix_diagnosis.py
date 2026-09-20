@@ -83,7 +83,7 @@ def dart_gain_share():
 print("=" * 70)
 print("【段一】逐特征 PSI × gain 风险分")
 tr, Xtr, y, cols = assemble.build_train()
-te, Xte_list = assemble.build_test_folds("testb", N_FOLDS, cols)
+te, Xte_list = assemble.build_test_folds(N_FOLDS, cols)
 Xte = Xte_list[0]
 print(f"  矩阵就绪 train{Xtr.shape} / testB{Xte.shape}   {time.time()-t0:.0f}s")
 

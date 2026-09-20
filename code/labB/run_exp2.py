@@ -46,7 +46,7 @@ FEAT_FILE, PREFIX, TAG = "f02_fund.parquet", "F_", "exp2"
 FAMILIES = ["dart", "abthin_lgbn", "cat"]
 
 tr, Xtr, y, cols = assemble.build_train()
-te, Xte_list = assemble.build_test_folds(TARGET, N_FOLDS, cols)
+te, Xte_list = assemble.build_test_folds(N_FOLDS, cols)
 print(f"基线矩阵 train{Xtr.shape} / {TARGET}{Xte_list[0].shape}"
       f"   {time.time()-t0:.0f}s")
 

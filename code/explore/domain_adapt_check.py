@@ -54,7 +54,7 @@ DROP = [
 ]
 
 tr, Xtr, y, cols = assemble.build_train()
-te, Xte_list = assemble.build_test_folds("testb", N_FOLDS, cols)
+te, Xte_list = assemble.build_test_folds(N_FOLDS, cols)
 Xte = Xte_list[0]
 use_cols = [c for c in cols if c not in DROP]
 print(f"特征 {len(cols)} 维 -> 剔除 {len(cols) - len(use_cols)} 维后 "

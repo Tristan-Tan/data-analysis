@@ -56,12 +56,13 @@ import pandas as pd
 import polars as pl
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from config import P, INTERIM, SIL_COLS, SIL_HELPER
+from config import P, INTERIM, SIL_COLS, SIL_HELPER, banner
 
 t0 = time.time()
 
 
 def main():
+    banner("09_silence_feat")
     t = pl.read_parquet(P("txn.parquet"),
                         columns=["card_no", "tms", "accno_txn_sn", "acct_bal",
                                  "inflow_amt", "outflow_amt"])

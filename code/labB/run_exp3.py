@@ -92,7 +92,7 @@ print(f"\n  判读：若 nf 最大的那几个对手度数极大而超额欺诈�
 print("\n" + "=" * 74)
 print("【段二】去掉绝对计数后的对照实验")
 tr, Xtr, y, cols = assemble.build_train()
-te, Xte_list = assemble.build_test_folds(TARGET, N_FOLDS, cols)
+te, Xte_list = assemble.build_test_folds(N_FOLDS, cols)
 
 abs_cols = [c for c in cols if c.endswith(ABS_SUFFIX)]
 ratio_cols = [c for c in cols if c.endswith(RATIO_SUFFIX)]

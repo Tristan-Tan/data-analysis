@@ -1,5 +1,17 @@
 # -*- coding: utf-8 -*-
-"""融合结构枚举：不重训，只重新组合已有的族预测
+"""【已被正式链路取代，保留作过程记录】
+
+本脚本枚举了 12 种融合结构并各写出一个候选 csv，最终选中的
+`partial_x2+full`（即 dart+abthin+cat+partial×2+full）就是复赛最终提交，
+线上 0.880637（664/754）。
+
+正式复现请用: code/test/predict.py —— 该配方已固化在
+config.ROUND_SPEC["B"]["blend"] 里，由落盘模型直接产出，无需重新组合 npy。
+
+本文件仅用于追溯当时的取舍过程，不参与复现链路。
+运行前需 export FRAUD_ROUND=B。
+
+融合结构枚举：不重训，只重新组合已有的族预测
 
 【为什么】
 no_silence_variant.py 两种模式训完后陷入两难：

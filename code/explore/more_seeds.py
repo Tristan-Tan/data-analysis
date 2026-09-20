@@ -69,7 +69,7 @@ def R(v):
 
 # ---------------- 矩阵 ----------------
 tr, Xbase, y, base_cols = assemble.build_train()
-te, Xte_base = assemble.build_test_folds("testb", N_FOLDS, base_cols)
+te, Xte_base = assemble.build_test_folds(N_FOLDS, base_cols)
 ab = load_or_create_features()
 Xthin = append_features(Xbase, tr[["card_no"]], ab)
 Xte_thin = [append_features(x, te[["card_no"]], ab) for x in Xte_base]

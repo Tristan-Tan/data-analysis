@@ -1,5 +1,16 @@
 # -*- coding: utf-8 -*-
-"""no-silence 变体：训练一个屏蔽 silence 族的窄树，作为第四个融合成员
+"""【已被正式链路取代，保留作过程记录】
+
+本脚本是赛中训练 no-silence 两个变体的探索版本，**只保存 oof/te 的 npy，
+不保存模型** —— 这正是复赛最终成绩一度无法从落盘模型复现的原因。
+
+正式复现请用: code/train/11_train_nosil.py（同一套超参与折划分，
+但会把 10 个模型落盘到 model/B/，供 predict.py 直接加载）。
+
+本文件仅用于追溯当时的判断过程，不参与复现链路。
+运行前需 export FRAUD_ROUND=B。
+
+no-silence 变体：训练一个屏蔽 silence 族的窄树，作为第四个融合成员
 
 【为什么做这个】
 B 榜两次提交 663/754 -> 662/754，组内分位修复在线上零收益。原因已想清楚：
@@ -78,7 +89,7 @@ print(f"[模式 {MODE}] train 矩阵 {Xtr.shape} -> {len(nosil_cols)} 维"
 print(f"  保留的 silence 维度 {len(kept_sil)} 个: {kept_sil}")
 print(f"  {time.time()-t0:.0f}s")
 
-te, Xte_list = assemble.build_test_folds("testb", N_FOLDS, cols)
+te, Xte_list = assemble.build_test_folds(N_FOLDS, cols)
 print(f"testB 矩阵 {Xte_list[0].shape} × {N_FOLDS} 份   {time.time()-t0:.0f}s")
 
 # ---------------- 训练 no-silence 窄树 ----------------

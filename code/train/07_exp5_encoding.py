@@ -13,7 +13,7 @@
    验证：仅用 56 维 exp5 区分 train / testA 的对抗 AUC 由 0.9695 降至 0.4989。
 
 输出:
-  data/interim/exp5_tr.parquet          训练侧 fold-safe OOF 编码
+  data/interim_{A|B}/exp5_tr.parquet          训练侧 fold-safe OOF 编码
   data/interim/exp5_te_f{0..4}.parquet  测试侧 fold-matched 编码（5 份）
 耗时: 约 8 分钟
 """
@@ -25,10 +25,10 @@ import polars as pl
 from sklearn.model_selection import StratifiedKFold
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from config import P, FOLD_SEED, N_FOLDS
+from config import P, FOLD_SEED, N_FOLDS, TARGET, SPEC, banner
 
 t0 = time.time()
-TARGET = sys.argv[1] if len(sys.argv) > 1 else "testa"   # testa / testb
+banner("07_exp5_encoding")
 
 
 # ---------------- 8 个边表变体 ----------------

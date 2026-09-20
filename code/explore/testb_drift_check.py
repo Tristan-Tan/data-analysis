@@ -43,7 +43,7 @@ t0 = time.time()
 tr, Xtr, y_true, cols = assemble.build_train()
 print(f"train 矩阵 {Xtr.shape}   {time.time()-t0:.0f}s")
 
-te, Xte_list = assemble.build_test_folds("testb", N_FOLDS, cols)
+te, Xte_list = assemble.build_test_folds(N_FOLDS, cols)
 Xte = Xte_list[0]          # 折间只有 exp5/smy_te 编码不同，取第 0 折做诊断即可
 print(f"testB 矩阵 {Xte.shape}（取 fold0）   {time.time()-t0:.0f}s")
 

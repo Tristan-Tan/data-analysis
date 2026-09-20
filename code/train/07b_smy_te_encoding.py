@@ -15,7 +15,7 @@
   test 编码（避免 exp5 初版犯过的参考集规模不一致、标签密度错位问题）。
 
 输出:
-  data/interim/smy_te_tr.parquet          训练侧 fold-safe OOF 编码
+  data/interim_{A|B}/smy_te_tr.parquet          训练侧 fold-safe OOF 编码
   data/interim/smy_te_te_f{0..4}.parquet  测试侧 fold-matched 编码（5 份）
 耗时: 约 1~2 分钟
 """
@@ -28,10 +28,14 @@ import polars as pl
 from sklearn.model_selection import StratifiedKFold
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from config import P, FOLD_SEED, N_FOLDS
+from config import P, FOLD_SEED, N_FOLDS, TARGET, SPEC, banner
 
 t0 = time.time()
-TARGET = sys.argv[1] if len(sys.argv) > 1 else "testa"   # testa / testb
+banner("07b_smy_te_encoding")
+if not SPEC["use_smy_te"]:
+    raise SystemExit(
+        "本赛段 use_smy_te=False（A 榜最终提交不含 smy_te 维度），"
+        "跳过 07b。\n这不是错误：run_train.sh 会按赛段自动跳过该步。")
 
 
 def main():

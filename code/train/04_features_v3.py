@@ -5,9 +5,10 @@
 import os, sys, time
 import polars as pl
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from config import P
+from config import P, banner
 
 t0 = time.time()
+banner("04_features_v3")
 txn = pl.read_parquet(P("txn.parquet")).sort(["card_no", "tms", "accno_txn_sn"])
 txn = txn.with_columns([
     pl.col("tms").dt.hour().alias("hour"),

@@ -3,14 +3,20 @@
 
 输入: data/train/*.csv, data/testA/testa.csv
      data/testB/{testb,txn_info_testb,card_info_testb,cst_info_testb,
-                 accno_info_testb}.csv（复赛阶段，若存在则自动并入）
-输出: data/interim/{txn,card,cst,accno,train,testa,testb,anchor}.parquet
+                 accno_info_testb}.csv（**仅 B 榜**读取）
+输出: data/interim_{A|B}/{txn,card,cst,accno,train,testa,testb,anchor}.parquet
 
 ⚠ B 榜的 txn_info_testb.csv 是独立文件，不在 txn_info_train_testa.csv 里，
   必须并入同一份 txn.parquet 才能保证 cp_degree（对手网络度）、exp5 暴露编码
   这类跨卡图特征在 train / testB 之间口径一致（同 A 榜 train_testa 合并的
   设计意图）。card/cst/accno 同理并入，testB 卡号应与 train+testA 不重叠。
-  B 榜数据不存在时（如提前跑通 A 榜复现）自动跳过，行为与之前完全一致。
+
+⚠⚠ **是否并入 testB 由赛段决定，而非由文件是否存在决定。**
+   合并 testB 会改变 `occupation_freq` 等 6 个频次编码、对手网络度、
+   exp5 低度数变体的取值 —— 它们都依赖"参考池里有哪些卡"。A 榜成绩是在
+   testB 尚不存在时跑出的，若在 testB 已落盘的机器上按"文件存在就合并"
+   去重跑 A 榜，得到的是另一套特征，复现不出 A 榜成绩。
+   因此 A 榜即使 data/testB/ 满着也一律不读，并落盘到独立的 interim_A。
 
 耗时: 约 3 分钟（B 榜数据到手后视数据量小幅增加）
 """
@@ -18,11 +24,20 @@ import os, sys, time
 import polars as pl
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from config import TRAIN_DIR, TESTA_DIR, TESTB_DIR, P
+from config import TRAIN_DIR, TESTA_DIR, TESTB_DIR, P, SPEC, ROUND, banner
 
 t0 = time.time()
-HAS_TESTB = os.path.exists(os.path.join(TESTB_DIR, "testb.csv"))
-print(f"testB 数据{'已就绪，将合并处理' if HAS_TESTB else '尚未就绪，跳过（仅处理 train+testA）'}")
+banner("01_parse_raw")
+_testb_on_disk = os.path.exists(os.path.join(TESTB_DIR, "testb.csv"))
+HAS_TESTB = SPEC["include_testb"] and _testb_on_disk
+if SPEC["include_testb"] and not _testb_on_disk:
+    raise SystemExit(
+        f"赛段 {ROUND} 需要 testB 数据，但 {TESTB_DIR}/testb.csv 不存在。\n"
+        "请先按 data/README.md 放置复赛的 5 个 csv。")
+if not SPEC["include_testb"] and _testb_on_disk:
+    print("  注意：磁盘上有 testB 数据，但本赛段为 A，**一律不读取**，"
+          "以保证特征与 A 榜当时完全一致")
+print(f"  参考池: train + testA{' + testB' if HAS_TESTB else ''}")
 
 # ---------- 1. txn ----------
 str_cols = ["card_no", "cst_accno", "cntrprt_card_no", "cntrprt_name",
